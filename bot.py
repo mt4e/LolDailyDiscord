@@ -229,11 +229,16 @@ class DailyBot(commands.Bot):
         self.timezone = ZoneInfo(os.getenv("TIMEZONE", "UTC"))
         self.run_time = time(int(os.getenv("RUN_HOUR", "9")), int(os.getenv("RUN_MINUTE", "0")))
         self.database = Database()
+        self.immediate_run = os.getenv("IMMEDIATE_RUN", "false").lower() == "true"  # For GitHub Actions
         self.daily_loop.change_interval(time=self.run_time.replace(tzinfo=self.timezone))
 
     async def on_ready(self) -> None:
         logger.info("Logged in as %s", self.user)
-        if not self.daily_loop.is_running():
+        if self.immediate_run:
+            logger.info("IMMEDIATE_RUN mode: executing immediately")
+            await self.post_daily_summary()
+            await self.close()
+        elif not self.daily_loop.is_running():
             self.daily_loop.start()
 
     @tasks.loop(time=time(9, 0))
