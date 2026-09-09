@@ -1,6 +1,5 @@
 name: Daily LoL Summary Bot
-
-# Updated: removed RUN_HOUR and RUN_MINUTE - scheduling managed by cron
+# Cache bust: 2026-09-09-v2
 on:
   schedule:
     # Runs daily at 08:00 UTC = 09:00 Europe/Paris (Europe/Paris is UTC+1 standard time, UTC+2 in summer)
