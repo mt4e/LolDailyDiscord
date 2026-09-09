@@ -36,12 +36,5 @@ jobs:
           echo "PLAYERS_JSON='${{ secrets.PLAYERS_JSON }}'" >> .env
           echo "IMMEDIATE_RUN=true" >> .env
       
-      - name: Debug - Show PLAYERS_JSON
-        run: |
-          echo "=== PLAYERS_JSON loaded ==="
-          python3 -c "import json, os; players = json.loads(os.getenv('PLAYERS_JSON')); print(f'Loaded {len(players)} players:'); [print(f'  - {p[\"name\"]} (tag: {p[\"tag\"]})') for p in players]"
-        env:
-          PLAYERS_JSON: ${{ secrets.PLAYERS_JSON }}
-      
       - name: Run bot (execute once and exit)
         run: timeout 120 python bot.py || true

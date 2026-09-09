@@ -188,9 +188,14 @@ def required_env(name: str) -> str:
 
 def load_players() -> list[Player]:
     try:
-        raw_players = json.loads(required_env("PLAYERS_JSON"))
+        players_json_str = required_env("PLAYERS_JSON")
+        logger.info("PLAYERS_JSON raw value: %s", players_json_str)
+        raw_players = json.loads(players_json_str)
+        logger.info("Parsed PLAYERS_JSON: %s", raw_players)
         players = [Player(item["name"], item["tag"]) for item in raw_players]
+        logger.info("Loaded %d players: %s", len(players), [f"{p.name}#{p.tag}" for p in players])
     except (json.JSONDecodeError, KeyError, TypeError) as error:
+        logger.error("Failed to load players: %s", error)
         raise RuntimeError("PLAYERS_JSON must be a JSON array of objects with name and tag") from error
     if len(players) != 6:
         raise RuntimeError("PLAYERS_JSON must contain exactly six players")
