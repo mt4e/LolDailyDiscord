@@ -1,5 +1,6 @@
 name: Daily LoL Summary Bot
-# Cache bust: 2026-09-09-v2
+
+# Updated: removed RUN_HOUR and RUN_MINUTE - scheduling managed by cron
 on:
   schedule:
     # Runs daily at 08:00 UTC = 09:00 Europe/Paris (Europe/Paris is UTC+1 standard time, UTC+2 in summer)
@@ -32,7 +33,7 @@ jobs:
           echo "RIOT_PLATFORM=${{ secrets.RIOT_PLATFORM }}" >> .env
           echo "RIOT_REGION=${{ secrets.RIOT_REGION }}" >> .env
           echo "TIMEZONE=${{ secrets.TIMEZONE }}" >> .env
-          echo "PLAYERS_JSON=${{ secrets.PLAYERS_JSON }}" >> .env
+          echo "PLAYERS_JSON='${{ secrets.PLAYERS_JSON }}'" >> .env
           echo "IMMEDIATE_RUN=true" >> .env
       
       - name: Debug - Show PLAYERS_JSON
