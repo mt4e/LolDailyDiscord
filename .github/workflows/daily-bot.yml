@@ -29,10 +29,10 @@ jobs:
         run: |
           echo "DISCORD_TOKEN=${{ secrets.DISCORD_TOKEN }}" >> .env
           echo "RIOT_API_KEY=${{ secrets.RIOT_API_KEY }}" >> .env
-          echo "DISCORD_CHANNEL_ID=${{ secrets.DISCORD_CHANNEL_ID }}" >> .env
-          echo "RIOT_PLATFORM=${{ secrets.RIOT_PLATFORM }}" >> .env
-          echo "RIOT_REGION=${{ secrets.RIOT_REGION }}" >> .env
-          echo "TIMEZONE=${{ secrets.TIMEZONE }}" >> .env
+          echo "DISCORD_CHANNEL_ID=${{ vars.DISCORD_CHANNEL_ID }}" >> .env
+          echo "RIOT_PLATFORM=${{ vars.RIOT_PLATFORM }}" >> .env
+          echo "RIOT_REGION=${{ vars.RIOT_REGION }}" >> .env
+          echo "TIMEZONE=${{ vars.TIMEZONE }}" >> .env
           printf 'PLAYERS_JSON=%s\n' '${{ secrets.PLAYERS_JSON }}' >> .env
           echo "IMMEDIATE_RUN=true" >> .env
       
