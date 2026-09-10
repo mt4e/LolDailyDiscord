@@ -1,40 +1,58 @@
 name: Daily LoL Summary Bot
 
-# Updated: removed RUN_HOUR and RUN_MINUTE - scheduling managed by cron
 on:
   schedule:
-    # Runs daily at 08:00 UTC = 09:00 Europe/Paris (Europe/Paris is UTC+1 standard time, UTC+2 in summer)
-    # Format: minute hour day month day-of-week
-    - cron: '00 08 * * *'
-  workflow_dispatch:  # Allow manual trigger from GitHub UI
+    # 08:20 UTC = 09:20 Europe/Paris in winter (CET, UTC+1) / 10:20 in summer (CEST, UTC+2).
+    # Avoiding the top of the hour reduces the queue delays GitHub applies to scheduled runs.
+    - cron: '20 8 * * *'
+  workflow_dispatch: # Allow manual trigger from GitHub UI
+
+# The bot keeps its memory (LP snapshots + last-check times) in lol_daily.sqlite3.
+# After each run this workflow commits that file back to the repository so the
+# LP diff stays consistent between runs. GITHUB_TOKEN therefore needs write access.
+permissions:
+  contents: write
 
 jobs:
   run-bot:
     runs-on: ubuntu-latest
-    
+
     steps:
-      - uses: actions/checkout@v3
-      
+      - uses: actions/checkout@v4
+
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: '3.13'
-      
+
       - name: Install dependencies
-        run: |
-          python -m pip install --upgrade pip
-          pip install -r requirements.txt
-      
-      - name: Create .env file
-        run: |
-          echo "DISCORD_TOKEN=${{ secrets.DISCORD_TOKEN }}" >> .env
-          echo "RIOT_API_KEY=${{ secrets.RIOT_API_KEY }}" >> .env
-          echo "DISCORD_CHANNEL_ID=${{ vars.DISCORD_CHANNEL_ID }}" >> .env
-          echo "RIOT_PLATFORM=${{ vars.RIOT_PLATFORM }}" >> .env
-          echo "RIOT_REGION=${{ vars.RIOT_REGION }}" >> .env
-          echo "TIMEZONE=${{ vars.TIMEZONE }}" >> .env
-          printf 'PLAYERS_JSON=%s\n' '${{ secrets.PLAYERS_JSON }}' >> .env
-          echo "IMMEDIATE_RUN=true" >> .env
-      
+        run: pip install -r requirements.txt
+
+      # Config is passed as environment variables (not a .env file): the bot's
+      # load_dotenv() never overrides variables that already exist in the environment.
       - name: Run bot (execute once and exit)
+        env:
+          DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
+          RIOT_API_KEY: ${{ secrets.RIOT_API_KEY }}
+          DISCORD_CHANNEL_ID: ${{ vars.DISCORD_CHANNEL_ID }}
+          RIOT_PLATFORM: ${{ vars.RIOT_PLATFORM }}
+          RIOT_REGION: ${{ vars.RIOT_REGION }}
+          TIMEZONE: ${{ vars.TIMEZONE }}
+          PLAYERS_JSON: ${{ secrets.PLAYERS_JSON }}
+          IMMEDIATE_RUN: 'true'
         run: timeout 120 python bot.py || true
+
+      - name: Persist bot state
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -B main origin/main
+          if [ -f lol_daily.sqlite3 ]; then
+            git add lol_daily.sqlite3
+          fi
+          if git diff --cached --quiet; then
+            echo "No state change recorded"
+          else
+            git commit -m "chore: persist daily bot state"
+            git push || { git pull --rebase && git push; }
+          fi

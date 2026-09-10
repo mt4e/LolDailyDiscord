@@ -41,7 +41,15 @@ The bot runs once when it starts, then daily at `RUN_HOUR:RUN_MINUTE` in `TIMEZO
 - NA: `RIOT_PLATFORM=NA1`, `RIOT_REGION=americas`
 - KR: `RIOT_PLATFORM=KR`, `RIOT_REGION=asia`
 
-## Free hosting
+## Free hosting without a machine
 
-You can run this locally at no cost. Free hosting providers often sleep or limit background workers, which can make a daily scheduler unreliable. A small always-on machine, such as an existing computer or Raspberry Pi, is the most dependable free option.
+The recommended way to run this bot for free with no always-on machine is **GitHub Actions** (see `GITHUB_ACTIONS_SETUP.md`):
+
+- The workflow runs daily at **08:20 UTC** (09:20 Europe/Paris in winter, 10:20 in summer) and posts the summary to your channel.
+- The bot's memory (LP snapshots + last-check times) is kept in `lol_daily.sqlite3`, which the workflow commits back to the repository after every run. That is what makes the LP diff consistent between runs.
+- Because the workflow commits to the repo every day, the repository never becomes inactive, so GitHub never pauses the scheduled workflow.
+
+> ⚠️ Run the bot **either locally or on GitHub Actions, not both**: the state file lives inside the git checkout, so a local run and a cloud run would overwrite each other's snapshots and post duplicate summaries.
+
+Running the bot locally on a small always-on machine (Raspberry Pi, an old PC) still works and is the most dependable option if you prefer it. Free PaaS providers often sleep or limit background workers, which makes daily schedulers unreliable.
 
