@@ -5,7 +5,7 @@ import logging
 import os
 import sqlite3
 from dataclasses import dataclass
-from datetime import date, datetime, time, timedelta, timezone
+from datetime import datetime, time, timedelta, timezone
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -40,6 +40,34 @@ class GameSummary:
     won: bool
     queue: str
     duration_minutes: int
+
+
+TIER_ORDER = {
+    "IRON": 0,
+    "BRONZE": 1,
+    "SILVER": 2,
+    "GOLD": 3,
+    "PLATINUM": 4,
+    "EMERALD": 5,
+    "DIAMOND": 6,
+    "MASTER": 7,
+    "GRANDMASTER": 8,
+    "CHALLENGER": 9,
+}
+
+DIVISION_ORDER = {"IV": 0, "III": 1, "II": 2, "I": 3}
+
+
+def absolute_lp(snapshot: RankedSnapshot) -> int:
+    """Map a tier/division/LP snapshot onto a continuous LP scale.
+
+    Each tier spans 400 LP (four divisions of 100), so promotions and
+    demotions across divisions are reflected in the difference. For example
+    Gold II (13 LP) -> 1413 and Gold III (88 LP) -> 1388, a delta of -25.
+    """
+    tier = snapshot.tier.upper()
+    division = DIVISION_ORDER.get(snapshot.rank.upper(), 0)  # Master+ has no division
+    return TIER_ORDER.get(tier, 0) * 400 + division * 100 + snapshot.lp
 
 
 class RiotApiError(Exception):
@@ -137,9 +165,8 @@ class RiotClient:
             logger.error("Failed to fetch ranked snapshot for PUUID %s: %s", puuid, e)
             return None
 
-    async def games_for_day(self, puuid: str, day: date, local_timezone: ZoneInfo) -> list[GameSummary]:
-        start = datetime.combine(day, time.min, tzinfo=local_timezone).astimezone(timezone.utc)
-        end = start + timedelta(days=1)
+    async def games_between(self, puuid: str, start: datetime, end: datetime) -> list[GameSummary]:
+        """List games played between two UTC-aware datetimes."""
         matches = await self.get(
             f"https://{self.region}.api.riotgames.com",
             f"/lol/match/v5/matches/by-puuid/{puuid}/ids",
@@ -208,6 +235,9 @@ class Database:
         self.connection.execute(
             "CREATE TABLE IF NOT EXISTS lp_snapshots (player TEXT PRIMARY KEY, tier TEXT, rank TEXT, lp INTEGER, checked_at TEXT NOT NULL)"
         )
+        self.connection.execute(
+            "CREATE TABLE IF NOT EXISTS last_checks (player TEXT PRIMARY KEY, checked_at TEXT NOT NULL)"
+        )
         self.connection.commit()
 
     def previous_snapshot(self, player: Player) -> RankedSnapshot | None:
@@ -220,6 +250,19 @@ class Database:
         self.connection.execute(
             "INSERT OR REPLACE INTO lp_snapshots VALUES (?, ?, ?, ?, ?)",
             (f"{player.name}#{player.tag}", snapshot.tier, snapshot.rank, snapshot.lp, datetime.now(timezone.utc).isoformat()),
+        )
+        self.connection.commit()
+
+    def last_check(self, player: Player) -> datetime | None:
+        row = self.connection.execute(
+            "SELECT checked_at FROM last_checks WHERE player = ?", (f"{player.name}#{player.tag}",)
+        ).fetchone()
+        return datetime.fromisoformat(row[0]) if row else None
+
+    def save_check(self, player: Player, checked_at: datetime) -> None:
+        self.connection.execute(
+            "INSERT OR REPLACE INTO last_checks VALUES (?, ?)",
+            (f"{player.name}#{player.tag}", checked_at.isoformat()),
         )
         self.connection.commit()
 
@@ -259,21 +302,38 @@ class DailyBot(commands.Bot):
         if not isinstance(channel, discord.TextChannel):
             logger.error("Channel %s was not found or is not a text channel", self.channel_id)
             return
+        now = datetime.now(timezone.utc)
         yesterday = datetime.now(self.timezone).date() - timedelta(days=1)
-        lines = [f"**League summary for {yesterday.isoformat()}**"]
+        lines: list[str] = []
+        windows: list[datetime] = []
         async with RiotClient(required_env("RIOT_API_KEY"), required_env("RIOT_PLATFORM"), required_env("RIOT_REGION")) as riot:
             for player in self.players:
                 try:
                     account = await riot.account(player)
-                    snapshot = await riot.ranked_snapshot(account["puuid"])
-                    games = await riot.games_for_day(account["puuid"], yesterday, self.timezone)
+                    puuid = account["puuid"]
+                    snapshot = await riot.ranked_snapshot(puuid)
+                    last_run = self.database.last_check(player)
+                    if last_run is None:
+                        # First run: report the whole previous local calendar day.
+                        start = datetime.combine(yesterday, time.min, tzinfo=self.timezone)
+                    else:
+                        # Later runs: everything since the last successful run,
+                        # so games played after midnight are not missed.
+                        start = last_run
+                    windows.append(start)
+                    games = await riot.games_between(puuid, start, now)
                     lines.append(format_player(player, games, snapshot, self.database.previous_snapshot(player)))
                     if snapshot:
                         self.database.save_snapshot(player, snapshot)
+                    self.database.save_check(player, now)
                 except (RiotApiError, KeyError, StopIteration) as error:
                     logger.exception("Could not load %s#%s", player.name, player.tag)
                     lines.append(f"**{player.name}#{player.tag}**: unavailable ({error})")
-        await channel.send("\n\n".join(lines))
+        if windows:
+            header = f"**League summary since {min(windows).astimezone(self.timezone):%Y-%m-%d %H:%M} ({self.timezone})**"
+        else:
+            header = f"**League summary for {yesterday.isoformat()}**"
+        await channel.send("\n\n".join([header] + lines))
 
 
 def format_player(
@@ -290,7 +350,7 @@ def format_player(
         if previous is None:
             lp_line = f"Ranked: {rank} | LP baseline"
         else:
-            delta = current.lp - previous.lp
+            delta = absolute_lp(current) - absolute_lp(previous)
             lp_line = f"Ranked: {rank} | LP {'+' if delta >= 0 else ''}{delta}"
     if not games:
         return f"{header}\n{lp_line}\nNo games found."

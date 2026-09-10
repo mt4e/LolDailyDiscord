@@ -4,12 +4,12 @@ A free-to-run Discord bot that posts a daily League of Legends summary for five 
 
 ## What it reports
 
-- Games from the previous local calendar day
+- Games played since the previous daily run (the first run reports the whole previous local calendar day, so matches played after midnight are not missed)
 - Champion, KDA, win/loss, queue, and duration
 - Ranked LP change since the previous successful daily check
 - Current rank and LP
 
-Riot's public API does not provide historical LP per match. The bot therefore stores the ranked LP returned at each daily run and compares it with the previous stored snapshot. The first run establishes a baseline and reports `LP baseline`.
+Riot's public API does not provide historical LP per match. The bot therefore stores the ranked LP returned at each daily run and compares it with the previous stored snapshot. The first run establishes a baseline and reports `LP baseline`. The comparison is division-aware: a demotion from Gold II (13 LP) to Gold III (88 LP) is reported as -25 LP, and promotions are handled the same way.
 
 ## Setup
 
@@ -44,3 +44,4 @@ The bot runs once when it starts, then daily at `RUN_HOUR:RUN_MINUTE` in `TIMEZO
 ## Free hosting
 
 You can run this locally at no cost. Free hosting providers often sleep or limit background workers, which can make a daily scheduler unreliable. A small always-on machine, such as an existing computer or Raspberry Pi, is the most dependable free option.
+
