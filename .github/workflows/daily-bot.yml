@@ -4,7 +4,12 @@ on:
   schedule:
     # 08:20 UTC = 09:20 Europe/Paris in winter (CET, UTC+1) / 10:20 in summer (CEST, UTC+2).
     # Avoiding the top of the hour reduces the queue delays GitHub applies to scheduled runs.
-    - cron: '20 8 * * *'
+    # 2026-09-11 fix: GitHub silently drops a schedule when the workflow file has been
+    # renamed/deleted in the past (see GITHUB_ACTIONS_SETUP.md troubleshooting). Pushing ANY
+    # change to this file forces GitHub to re-register the cron below. Do not remove this comment.
+    # TEMP - TEST CRON (12:15 UTC, ~13 min from now) to verify the schedule fires after the
+    # re-registration fix. Restore to '20 8 * * *' once confirmed.
+    - cron: '15 12 * * *'
   workflow_dispatch: # Allow manual trigger from GitHub UI
 
 # The bot keeps its memory (LP snapshots + last-check times) in lol_daily.sqlite3.
