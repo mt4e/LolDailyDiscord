@@ -6,6 +6,7 @@ import os
 import sqlite3
 from dataclasses import dataclass
 from datetime import datetime, time, timedelta, timezone
+from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
 import aiohttp
@@ -56,6 +57,51 @@ TIER_ORDER = {
 }
 
 DIVISION_ORDER = {"IV": 0, "III": 1, "II": 2, "I": 3}
+
+ANSI_RESET = "\u001b[0m"
+
+# Fixed text color per player, aligned with the order of PLAYERS_JSON.
+# Bright ANSI palette available on Discord: red, green, yellow, blue, magenta, cyan.
+PLAYER_COLORS = ["1;31", "1;32", "1;33", "1;34", "1;35", "1;36"]
+
+# LoL-like colors for ranked tiers (limited to Discord's ANSI palette).
+TIER_ANSI = {
+    "IRON": "90",
+    "BRONZE": "33",
+    "SILVER": "1;37",
+    "GOLD": "1;33",
+    "PLATINUM": "36",
+    "EMERALD": "1;32",
+    "DIAMOND": "1;34",
+    "MASTER": "1;35",
+    "GRANDMASTER": "1;31",
+    "CHALLENGER": "1;31",
+}
+
+# Colors for the embed accent bar, close to the in-client tier colors.
+TIER_EMBED_COLOR = {
+    "IRON": 0x51484A,
+    "BRONZE": 0xCD7F32,
+    "SILVER": 0x8E8E93,
+    "GOLD": 0xC9A227,
+    "PLATINUM": 0x27AAE1,
+    "EMERALD": 0x12B981,
+    "DIAMOND": 0xB785FC,
+    "MASTER": 0xC937D0,
+    "GRANDMASTER": 0xE13C3C,
+    "CHALLENGER": 0xE13C3C,
+}
+
+UNRANKED_EMBED_COLOR = 0x5865F2
+
+
+def ansi(style: str, text: str) -> str:
+    """Return text wrapped in ANSI codes so it renders colored in ```ansi``` blocks."""
+    return f"\u001b[{style}m{text}{ANSI_RESET}"
+
+
+def tier_ansi(tier: str) -> str:
+    return TIER_ANSI.get(tier.upper(), "37")
 
 
 def absolute_lp(snapshot: RankedSnapshot) -> int:
@@ -304,10 +350,11 @@ class DailyBot(commands.Bot):
             return
         now = datetime.now(timezone.utc)
         yesterday = datetime.now(self.timezone).date() - timedelta(days=1)
-        lines: list[str] = []
+        embeds: list[discord.Embed] = []
+        records: list[tuple[str, int, int]] = []
         windows: list[datetime] = []
         async with RiotClient(required_env("RIOT_API_KEY"), required_env("RIOT_PLATFORM"), required_env("RIOT_REGION")) as riot:
-            for player in self.players:
+            for index, player in enumerate(self.players):
                 try:
                     account = await riot.account(player)
                     puuid = account["puuid"]
@@ -322,43 +369,122 @@ class DailyBot(commands.Bot):
                         start = last_run
                     windows.append(start)
                     games = await riot.games_between(puuid, start, now)
-                    lines.append(format_player(player, games, snapshot, self.database.previous_snapshot(player)))
+                    embeds.append(player_embed(player, games, snapshot, self.database.previous_snapshot(player), index))
+                    wins = sum(1 for game in games if game.won)
+                    records.append((f"{player.name}#{player.tag}", wins, len(games) - wins))
                     if snapshot:
                         self.database.save_snapshot(player, snapshot)
                     self.database.save_check(player, now)
                 except (RiotApiError, KeyError, StopIteration) as error:
                     logger.exception("Could not load %s#%s", player.name, player.tag)
-                    lines.append(f"**{player.name}#{player.tag}**: unavailable ({error})")
+                    embeds.append(error_embed(player, error, index))
         if windows:
             header = f"**League summary since {min(windows).astimezone(self.timezone):%Y-%m-%d %H:%M} ({self.timezone})**"
         else:
             header = f"**League summary for {yesterday.isoformat()}**"
-        await channel.send("\n\n".join([header] + lines))
+        embeds.insert(0, summary_embed(header, records))
+        await channel.send(embeds=embeds)
 
 
-def format_player(
+def record_and_streak(games: list[GameSummary]) -> tuple[int, int, int]:
+    """Return (wins, losses, current_streak).
+
+    Streak is positive for consecutive wins and negative for consecutive
+    losses, counting from the most recent game (first in the list).
+    """
+    wins = sum(1 for game in games if game.won)
+    losses = len(games) - wins
+    streak = 0
+    for game in reversed(games):
+        delta = 1 if game.won else -1
+        if streak * delta >= 0:
+            streak += delta
+        else:
+            break
+    return wins, losses, streak
+
+
+def win_loss_indicator(won: bool) -> str:
+    return ansi("1;34" if won else "1;31", "W" if won else "L")
+
+
+def format_game_line(game: GameSummary) -> str:
+    indicator = win_loss_indicator(game.won)
+    return f"{indicator} {game.champion} {game.kills}/{game.deaths}/{game.assists} | {game.queue} | {game.duration_minutes}m"
+
+
+def format_rank_line(current: RankedSnapshot | None, previous: RankedSnapshot | None) -> str:
+    if current is None:
+        return "Ranked: unranked"
+    rank = ansi(tier_ansi(current.tier), f"{current.tier.title()} {current.rank} ({current.lp} LP)")
+    if previous is None:
+        return f"Ranked: {rank} | LP baseline"
+    delta = absolute_lp(current) - absolute_lp(previous)
+    if delta > 0:
+        lp = f"LP {delta:+d} ⬆️"
+    elif delta < 0:
+        lp = f"LP {delta:+d} ⬇️"
+    else:
+        lp = "LP ±0 ➖"
+    return f"Ranked: {rank} | {lp}"
+
+
+def champion_thumbnail_url(champion: str) -> str:
+    """Version-free loading-screen art URL for a champion on Data Dragon."""
+    return f"https://ddragon.leagueoflegends.com/cdn/img/champion/loading/{quote(champion, safe='')}_0.jpg"
+
+
+def player_embed(
     player: Player,
     games: list[GameSummary],
     current: RankedSnapshot | None,
     previous: RankedSnapshot | None,
-) -> str:
-    header = f"**{player.name}#{player.tag}**: {len(games)} game(s)"
-    if current is None:
-        lp_line = "Ranked: unranked"
-    else:
-        rank = f"{current.tier.title()} {current.rank} ({current.lp} LP)"
-        if previous is None:
-            lp_line = f"Ranked: {rank} | LP baseline"
-        else:
-            delta = absolute_lp(current) - absolute_lp(previous)
-            lp_line = f"Ranked: {rank} | LP {'+' if delta >= 0 else ''}{delta}"
-    if not games:
-        return f"{header}\n{lp_line}\nNo games found."
-    game_lines = [
-        f"{'W' if game.won else 'L'} {game.champion} {game.kills}/{game.deaths}/{game.assists} | {game.queue} | {game.duration_minutes}m"
-        for game in games
-    ]
-    return f"{header}\n{lp_line}\n" + "\n".join(game_lines)
+    color_index: int,
+) -> discord.Embed:
+    pseudo_color = PLAYER_COLORS[color_index % len(PLAYER_COLORS)]
+    wins, losses, streak = record_and_streak(games)
+
+    header = f"{ansi(pseudo_color, f'{player.name}#{player.tag}')} · {len(games)} game(s)"
+    if games:
+        header += f" · {wins}W {losses}L ({round(wins / len(games) * 100)}%)"
+        if streak >= 2:
+            header += f" 🔥 {streak}W streak"
+        elif streak <= -2:
+            header += f" 🧊 {-streak}L streak"
+
+    embed_color = TIER_EMBED_COLOR.get(current.tier.upper(), UNRANKED_EMBED_COLOR) if current else UNRANKED_EMBED_COLOR
+    embed = discord.Embed(
+        title=f"{player.name}#{player.tag}",
+        description=f"```ansi\n{header}\n```",
+        color=embed_color,
+    )
+    embed.add_field(name="Rank", value=f"```ansi\n{format_rank_line(current, previous)}\n```", inline=False)
+    if games:
+        game_block = "\n".join(format_game_line(game) for game in games)
+        if len(game_block) > 1000:
+            game_block = game_block[:995] + "\n…"
+        embed.add_field(name="Games", value=f"```ansi\n{game_block}\n```", inline=False)
+        embed.set_thumbnail(url=champion_thumbnail_url(games[0].champion))
+    return embed
+
+
+def error_embed(player: Player, error: Exception, color_index: int) -> discord.Embed:
+    pseudo_color = PLAYER_COLORS[color_index % len(PLAYER_COLORS)]
+    pseudo = ansi(pseudo_color, f"{player.name}#{player.tag}")
+    return discord.Embed(
+        title=f"{player.name}#{player.tag}",
+        description=f"```ansi\n{pseudo}\n```\nUnavailable ({error})",
+        color=0x36393F,
+    )
+
+
+def summary_embed(header: str, records: list[tuple[str, int, int]]) -> discord.Embed:
+    embed = discord.Embed(title="📊 Daily League Recap", description=header, color=0x5865F2)
+    for name, wins, losses in records:
+        total = wins + losses
+        pct = round(wins / total * 100) if total else 0
+        embed.add_field(name=name, value=f"{wins}W {losses}L ({pct}%)", inline=True)
+    return embed
 
 
 if __name__ == "__main__":
