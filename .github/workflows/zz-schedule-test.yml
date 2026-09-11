@@ -1,18 +1,16 @@
-name: Daily LoL Summary Bot
+# TEMPORARY verification workflow (2026-09-11) - DELETE once the daily cron is confirmed to fire.
+# Why it exists: GitHub never (re)registered the cron on the renamed daily-bot.yml (0 scheduled
+# runs in history). A BRAND-NEW workflow file name gets a fresh, reliable schedule registration.
+# NOTE: while this file exists it is the ONLY owner of a schedule cron; if it ran the bot at the
+# same time as daily-bot.yml, Discord would get duplicate posts. Runs once, then revert.
+name: Daily LoL Summary Bot (schedule test)
 
 on:
   schedule:
-    # 08:20 UTC = 09:20 Europe/Paris in winter (CET, UTC+1) / 10:20 in summer (CEST, UTC+2).
-    # Avoiding the top of the hour reduces the queue delays GitHub applies to scheduled runs.
-    # 2026-09-11 fix: GitHub silently drops a schedule when the workflow file has been
-    # renamed/deleted in the past (see GITHUB_ACTIONS_SETUP.md troubleshooting). Pushing ANY
-    # change to this file forces GitHub to re-register the cron below. Do not remove this comment.
-    - cron: '20 8 * * *'
-  workflow_dispatch: # Allow manual trigger from GitHub UI
+    # Verification cron: 13:20 UTC on 2026-09-11 (to be replaced by 08:20 UTC schedule afterwards).
+    - cron: '20 13 * * *'
+  workflow_dispatch:
 
-# The bot keeps its memory (LP snapshots + last-check times) in lol_daily.sqlite3.
-# After each run this workflow commits that file back to the repository so the
-# LP diff stays consistent between runs. GITHUB_TOKEN therefore needs write access.
 permissions:
   contents: write
 
@@ -31,8 +29,6 @@ jobs:
       - name: Install dependencies
         run: pip install -r requirements.txt
 
-      # Config is passed as environment variables (not a .env file): the bot's
-      # load_dotenv() never overrides variables that already exist in the environment.
       - name: Run bot (execute once and exit)
         env:
           DISCORD_TOKEN: ${{ secrets.DISCORD_TOKEN }}
