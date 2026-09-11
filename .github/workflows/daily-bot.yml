@@ -1,14 +1,13 @@
-name: Daily LoL Summary Bot
-
+# Daily LoL Summary Bot
+#
+# Triggered by an EXTERNAL cron service via the GitHub workflow_dispatch API:
+#   POST https://api.github.com/repos/mt4e/LolDailyDiscord/actions/workflows/daily-bot.yml/dispatches
+#   Authorization: Bearer <fine-grained PAT with Actions: read/write on this repo>
+#   {"ref": "main"}
+# (GitHub's own "schedule" cron is deliberately NOT used: it never fired reliably on this repo
+# after the workflow file was renamed - see GITHUB_ACTIONS_SETUP.md. 2026-09-11.)
 on:
-  schedule:
-    # 08:20 UTC = 09:20 Europe/Paris in winter (CET, UTC+1) / 10:20 in summer (CEST, UTC+2).
-    # Avoiding the top of the hour reduces the queue delays GitHub applies to scheduled runs.
-    # 2026-09-11 fix: GitHub silently drops a schedule when the workflow file has been
-    # renamed/deleted in the past (see GITHUB_ACTIONS_SETUP.md troubleshooting). Pushing ANY
-    # change to this file forces GitHub to re-register the cron below. Do not remove this comment.
-    - cron: '20 8 * * *'
-  workflow_dispatch: # Allow manual trigger from GitHub UI
+  workflow_dispatch: # External cron service triggers this daily at 08:20 UTC
 
 # The bot keeps its memory (LP snapshots + last-check times) in lol_daily.sqlite3.
 # After each run this workflow commits that file back to the repository so the
