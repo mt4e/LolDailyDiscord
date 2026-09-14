@@ -4,10 +4,12 @@ A free-to-run Discord bot that posts a daily League of Legends summary for five 
 
 ## What it reports
 
-- Games played since the previous daily run (the first run reports the whole previous local calendar day, so matches played after midnight are not missed)
+- Ranked Solo/Duo games played since the previous daily run (the first run reports the whole previous local calendar day, so matches played after midnight are not missed)
 - Champion, KDA, win/loss, queue, and duration
 - Ranked LP change since the previous successful daily check
 - Current rank and LP
+
+Only Ranked Solo/Duo games are reported, because that is the ladder the LP change refers to: flex, ARAM and Swiftplay games are not counted and not listed. Remakes are excluded too: when a player never connects the game is cancelled at 3:00, nobody loses LP, yet Riot still reports it as a plain win for the team whose players all connected and a loss for the team with the missing player. Such games are detected through Riot's `gameEndedInEarlySurrender` flag, with the game duration (a remake is always shorter than ten minutes, while a real game cannot end before the 15:00 surrender vote) as a fallback.
 
 Riot's public API does not provide historical LP per match. The bot therefore stores the ranked LP returned at each daily run and compares it with the previous stored snapshot. The first run establishes a baseline and reports `LP baseline`. The comparison is division-aware: a demotion from Gold II (13 LP) to Gold III (88 LP) is reported as -25 LP, and promotions are handled the same way.
 

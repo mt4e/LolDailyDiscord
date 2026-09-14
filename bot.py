@@ -58,6 +58,17 @@ TIER_ORDER = {
 
 DIVISION_ORDER = {"IV": 0, "III": 1, "II": 2, "I": 3}
 
+# Only Ranked Solo/Duo games are reported: the recap is read next to the LP
+# change of the Ranked Solo/Duo ladder, so flex/ARAM/Swiftplay games would only
+# pollute the win/loss counts.
+RANKED_SOLO_QUEUE_ID = 420
+
+# A remake happens when a player never connects: the game is cancelled, no team
+# loses LP, but Riot still reports a plain win or loss for the connecting team.
+# Remakes are always shorter than ten minutes (the remake vote happens at 3:00),
+# while a real game cannot end before the 15:00 surrender vote.
+REMAKE_MAX_DURATION_SECONDS = 10 * 60
+
 ANSI_RESET = "\u001b[0m"
 
 # Fixed text color per player, aligned with the order of PLAYERS_JSON.
@@ -212,12 +223,19 @@ class RiotClient:
             return None
 
     async def games_between(self, puuid: str, start: datetime, end: datetime) -> list[GameSummary]:
-        """List games played between two UTC-aware datetimes."""
+        """List the Ranked Solo/Duo games actually played between two UTC-aware datetimes.
+
+        Other queues (flex, ARAM, Swiftplay, ...) are left out because the
+        reported LP change only concerns the Ranked Solo/Duo ladder, and remakes
+        are left out because they are not real results: nobody loses LP when a
+        player never connects.
+        """
         matches = await self.get(
             f"https://{self.region}.api.riotgames.com",
             f"/lol/match/v5/matches/by-puuid/{puuid}/ids",
             startTime=int(start.timestamp()),
             endTime=int(end.timestamp()),
+            queue=RANKED_SOLO_QUEUE_ID,
             start=0,
             count=100,
         )
@@ -227,11 +245,23 @@ class RiotClient:
                 f"https://{self.region}.api.riotgames.com",
                 f"/lol/match/v5/matches/{match_id}",
             )
+            info = details["info"]
+            # The ids endpoint already filters on the queue; keep the check so a
+            # single-game response can never leak another queue into the recap.
+            if info["queueId"] != RANKED_SOLO_QUEUE_ID:
+                continue
             participant = next(
                 participant
-                for participant in details["info"]["participants"]
+                for participant in info["participants"]
                 if participant["puuid"] == puuid
             )
+            if is_remake(info, participant):
+                logger.info(
+                    "Skipping remake %s (%s s, no LP lost)",
+                    match_id,
+                    info["gameDuration"],
+                )
+                continue
             summaries.append(
                 GameSummary(
                     champion=participant["championName"],
@@ -239,11 +269,27 @@ class RiotClient:
                     deaths=participant["deaths"],
                     assists=participant["assists"],
                     won=participant["win"],
-                    queue=queue_name(details["info"]["queueId"]),
-                    duration_minutes=round(details["info"]["gameDuration"] / 60),
+                    queue=queue_name(info["queueId"]),
+                    duration_minutes=round(info["gameDuration"] / 60),
                 )
             )
         return summaries
+
+
+def is_remake(info: dict, participant: dict) -> bool:
+    """Tell whether a match is a remake, i.e. cancelled because a player never connected.
+
+    Such a game awards no LP to either team, yet Riot reports it as a plain win
+    for the team whose players all connected and a loss for the team with the
+    missing player, so it must not be counted in the recap. Recent matches are
+    flagged explicitly (``gameEndedInEarlySurrender``, true for both teams); the
+    duration check is the fallback and matches the user-visible rule "shorter
+    than ten minutes and no LP lost".
+    """
+    if participant.get("gameEndedInEarlySurrender"):
+        return True
+    duration_seconds = info.get("gameDuration")
+    return duration_seconds is not None and duration_seconds < REMAKE_MAX_DURATION_SECONDS
 
 
 def queue_name(queue_id: int) -> str:
