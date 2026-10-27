@@ -316,8 +316,8 @@ def load_players() -> list[Player]:
     except (json.JSONDecodeError, KeyError, TypeError) as error:
         logger.error("Failed to load players: %s", error)
         raise RuntimeError("PLAYERS_JSON must be a JSON array of objects with name and tag") from error
-    if len(players) != 6:
-        raise RuntimeError("PLAYERS_JSON must contain exactly six players")
+    if not players:
+        raise RuntimeError("PLAYERS_JSON must contain at least one player")
     return players
 
 
@@ -441,7 +441,7 @@ def record_and_streak(games: list[GameSummary]) -> tuple[int, int, int]:
     wins = sum(1 for game in games if game.won)
     losses = len(games) - wins
     streak = 0
-    for game in reversed(games):
+    for game in games:
         delta = 1 if game.won else -1
         if streak * delta >= 0:
             streak += delta

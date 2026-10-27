@@ -1,6 +1,6 @@
 # LoL Daily Discord Bot
 
-A free-to-run Discord bot that posts a daily League of Legends summary for five Riot IDs.
+A free-to-run Discord bot that posts a daily League of Legends summary for a list of Riot IDs (any number; each of the first six gets its own name color, then the colors repeat).
 
 ## What it reports
 
