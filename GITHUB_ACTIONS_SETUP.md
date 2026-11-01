@@ -35,7 +35,7 @@ Your `.env` variables need to be added to the repository so they're available to
 |------------|-------|
 | `DISCORD_TOKEN` | Your bot token from `.env` |
 | `RIOT_API_KEY` | Your Riot API key from `.env` |
-| `PLAYERS_JSON` | Your players JSON array from `.env` (e.g. `[{"name":"Cimo","tag":"EUW25"},...]`) |
+| `PLAYERS_JSON` | Your players JSON array from `.env` (e.g. `[{"name":"KC Cimo","tag":"EUW25"},...]`) |
 
 3. Add each **Variable** (same page, **Variables** tab → **New repository variable**):
 

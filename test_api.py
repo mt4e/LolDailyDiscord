@@ -13,7 +13,7 @@ async def test():
     region = os.getenv("RIOT_REGION")
     
     # Test with first player
-    test_player = Player("Cimo", "EUW25")
+    test_player = Player("KC Cimo", "EUW25")
     
     async with RiotClient(api_key, platform, region) as riot:
         print(f"Testing with player: {test_player.name}#{test_player.tag}")
